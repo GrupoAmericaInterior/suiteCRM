@@ -285,7 +285,8 @@ function make_sugar_config(&$sugar_config)
             '110', '143', '993', '995'
         ],
         'web_to_lead_allowed_redirect_hosts' => [],
-        'trusted_hosts' => []
+        'trusted_hosts' => [],
+        'external_trusted_hosts' => []
     );
 }
 
@@ -581,7 +582,8 @@ function get_sugar_config_defaults(): array
             '110', '143', '993', '995'
         ],
         'web_to_lead_allowed_redirect_hosts' => [],
-        'trusted_hosts' => []
+        'trusted_hosts' => [],
+        'external_trusted_hosts' => []
     ];
 
     if (!is_object($locale)) {
@@ -2585,7 +2587,9 @@ function clean_incoming_data()
     if (isset($_REQUEST['stamp'])) {
         clean_string($_REQUEST['stamp']);
     }
-
+    if (isset($_REQUEST['return_id'])) {
+        $_REQUEST['return_id'] = purifyId($_REQUEST['return_id']);
+    }
     if (isset($_REQUEST['lvso'])) {
         set_superglobals('lvso', (strtolower($_REQUEST['lvso']) === 'desc') ? 'desc' : 'asc');
     }
@@ -5956,6 +5960,23 @@ function isValidId($id)
     return $result;
 }
 
+/**
+ * Purify id by validating it and returning empty string if invalid. This is useful for cleaning up data that is going to be used in a query or as part of a file path.
+ * @param string $id
+ * @return string
+ */
+function purifyId(string $id): string
+{
+    $isValidator = new \SuiteCRM\Utility\SuiteValidator();
+    $result = $isValidator->isValidId($id);
+
+    if (!$result) {
+        return '';
+    }
+
+    return $id;
+}
+
 function isValidEmailAddress($email, $message = 'Invalid email address given', $orEmpty = true, $logInvalid = 'error')
 {
     if ($orEmpty && !$email) {
@@ -6269,6 +6290,103 @@ function check_trusted_hosts(): void {
 
         throw new BadMethodCallException(sprintf('Untrusted Host "%s".', $host));
     }
+}
+
+/**
+ * Get currently configured external trusted hosts, if none configured return empty
+ * @return array
+ */
+function get_external_trusted_hosts(): array {
+
+    $trustedHosts = SugarConfig::getInstance()->get('external_trusted_hosts', []);
+
+    if (!empty($trustedHosts) && is_array($trustedHosts)){
+        return $trustedHosts;
+    }
+
+    return [];
+}
+
+/**
+ * Validate external host
+ */
+function validate_external_host(string $url): bool {
+
+    global $log;
+
+    // Allow self-referential URLs (site_url and HTTP_HOST)
+    if (isSelfRequest($url)) {
+        return true;
+    }
+
+    // Allow tmp urls for file uploads for internal tcpdf use
+    if (str_starts_with($url, '/tmp') || str_starts_with($url, 'tmp/')) {
+        return true;
+    }
+
+    $urlparse = parse_url($url);
+    if ($urlparse === false || empty($urlparse['scheme']) || empty($urlparse['host'])) {
+        $log->security("Invalid external host URL: $url");
+        return false;
+    }
+
+    if ($urlparse['scheme'] !== 'http' && $urlparse['scheme'] !== 'https') {
+        $log->security("Invalid external host URL scheme: $url");
+        return false;
+    }
+
+    $host = strtolower($urlparse['host']);
+
+    // Resolve hostname to IP and validate
+    $ips = @gethostbynamel($host) ?: [filter_var($host, FILTER_VALIDATE_IP)];
+
+    foreach ($ips as $ip) {
+        if ($ip === false) {
+            continue;
+        }
+
+        // Validate IPv4 and IPv6 addresses
+        $isValidIPv4 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+        $isValidIPv6 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_RES_RANGE);
+
+        // Additional IPv6 private range checks (as FILTER_FLAG_NO_PRIV_RANGE doesn't cover all)
+        if ($isValidIPv6 !== false) {
+            $isValidIPv6 = !preg_match('/^(::1|fe80:|fc00:|fd00:)/i', $ip);
+        }
+
+        if ($isValidIPv4 === false && $isValidIPv6 === false) {
+            $log->security("Invalid external host IP address (private/reserved): $url resolves to $ip");
+            return false;
+        }
+    }
+
+    $externalTrustedHostPatterns = get_external_trusted_hosts();
+
+    if (empty($externalTrustedHostPatterns)) {
+        return true;
+    }
+
+    // Add site_url and HTTP_HOST to trusted patterns
+    $siteUrl = SugarConfig::getInstance()->get('site_url', '');
+    $parsedSiteUrl = parse_url($siteUrl);
+
+    if (!empty($parsedSiteUrl['host'])) {
+        $externalTrustedHostPatterns[] = preg_quote($parsedSiteUrl['host'], '/');
+    }
+
+    if (!empty($_SERVER["HTTP_HOST"])) {
+        $externalTrustedHostPatterns[] = preg_quote($_SERVER["HTTP_HOST"], '/');
+    }
+
+    foreach ($externalTrustedHostPatterns as $pattern) {
+        // Match pattern against the host only, not the entire URL
+        if (preg_match('/^' . $pattern . '$/i', $host)) {
+            return true;
+        }
+    }
+
+    $log->security("Untrusted external Host: $url (host: $host)");
+    return false;
 }
 
 /**
