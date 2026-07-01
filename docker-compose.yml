@@ -4,10 +4,13 @@ services:
     container_name: suitecrm_app
     environment:
       - TZ=America/Argentina/Mendoza
+      - COMPOSER_ALLOW_SUPERUSER=1
     ports:
       - "8097:80"
     volumes:
       - ./:/var/www/html
+    command: >
+      bash -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist; fi; apache2-foreground"
     depends_on:
       - db
   db:
