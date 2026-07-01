@@ -12,6 +12,23 @@ services:
     command: ["bash", "/var/www/html/docker/startup.sh"]
     depends_on:
       - db
+  scheduler:
+    build: .
+    container_name: suitecrm_scheduler
+    environment:
+      - TZ=America/Argentina/Mendoza
+      - COMPOSER_ALLOW_SUPERUSER=1
+    volumes:
+      - ./:/var/www/html
+    command:
+      [
+        "bash",
+        "-lc",
+        "while true; do php -f /var/www/html/cron.php; sleep 60; done"
+      ]
+    depends_on:
+      - app
+      - db
   db:
     image: mariadb:10.6
     container_name: suitecrm_db
