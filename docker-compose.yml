@@ -9,8 +9,7 @@ services:
       - "8097:80"
     volumes:
       - ./:/var/www/html
-    command: >
-      bash -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist; fi; apache2-foreground"
+    command: ["bash", "/var/www/html/docker/startup.sh"]
     depends_on:
       - db
   db:
