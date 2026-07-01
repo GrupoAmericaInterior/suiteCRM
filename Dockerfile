@@ -10,11 +10,13 @@ RUN apt-get update && apt-get install -y \
         libzip-dev \
         libonig-dev \
         libxml2-dev \
+        libldap2-dev \
         unzip \
         git \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) curl gd intl zip pdo pdo_mysql mysqli soap mbstring bcmath exif opcache gettext \
-    && docker-php-ext-enable curl gd intl zip pdo pdo_mysql mysqli soap mbstring bcmath exif opcache gettext \
+    && docker-php-ext-configure ldap \
+    && docker-php-ext-install -j$(nproc) curl gd intl zip pdo pdo_mysql mysqli soap mbstring bcmath exif opcache gettext ldap \
+    && docker-php-ext-enable curl gd intl zip pdo pdo_mysql mysqli soap mbstring bcmath exif opcache gettext ldap \
     && rm -rf /var/lib/apt/lists/*
 
 RUN a2enmod rewrite && \
